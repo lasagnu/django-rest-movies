@@ -51,14 +51,17 @@ If it is your first start, you have to initiate the DB, by sending POST request 
 ```
 
 # Endpoints
-
+```
 /movie/ - lists all movies
+
 /movie/<id> - lists movie details, where id = movie_id
+
 /movies/?year=<int:year> - list of movies made in given year
+
 /movies/?sort=<str:key> - sorted list of movies, ordered by key
 
 /db with body {"source": "ml-latest-small"} - deletes current DB records and imports new data set
-
+```
 ## Built With
 
 * [Django](https://www.djangoproject.com/) - The web framework used
