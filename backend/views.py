@@ -1,72 +1,106 @@
-from rest_framework import status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from django.db.models import FieldDoesNotExist
+from django.db import models
 
+from django.db.models import Avg
 
-from .models import Links, Movies, Ratings, Tags
-from .dataset import import_dataset
+'''
+Managers
+'''
 
-import os
+class LinksManager(models.Manager):
+    def movie_id(self, id):
+        imdb_id = self.filter(movie_id=id).values('imdb_id')[0]['imdb_id']
+        return 'https://www.imdb.com/title/tt0' + str(imdb_id)
 
-cwd = os.path.dirname(os.path.realpath(__file__))
+class MoviesManager(models.Manager):
+    def id(self, id):
+        return self.filter(movie_id=id)
+    def title_by_id(self, id):
+        return self.filter(movie_id=id).values('title')[0]['title']
+    def year_by_id(self, id):
+        return self.filter(movie_id=id).values('year')[0]['year']
+    def genres_by_id(self, id):
+        genres = self.filter(movie_id=id).values('genres')[0]['genres']
+        genres = genres.split('|')
+        return genres
+    def by_year(self, m_year):
+        return self.filter(year=m_year)
+    def by_tags(self, tags):
+        movie_ids = []
+        for tag in tags:
+            movies = Tags.objects.filter(tag=tag).values('movie_id')
+            for m_id in range(0, len(movies)-1):
+                movie_ids.append(int(movies[m_id]['movie_id']))
+        return self.filter(movie_id__in=movie_ids)
 
-def query_set_to_dict(qsv):
-    return [item for item in qsv]
+class RatingsManager(models.Manager):
+    def movie_id(self, id):
+        return self.filter(movie_id=id)
 
-class MovieDetails(APIView):
-    def get(self, request, movieId):
-        if Movies.objects.id(movieId).exists():
-            return Response({
-                'title': Movies.objects.title_by_id(movieId),
-                'score': Ratings.objects.movie_avg(movieId),
-                'genres': Movies.objects.genres_by_id(movieId),
-                'link': Links.objects.movie_id(movieId),
-                'year': Movies.objects.year_by_id(movieId)
-                }, status=status.HTTP_200_OK)
+    def movie_avg(self, id):
+        avg_score = self.filter(movie_id=id).aggregate(Avg('rating'))['rating__avg']
+        avg_score = round(avg_score, 1)
+        return avg_score
+
+class TagsManager(models.Manager):
+    def movie_id(self, id):
+        tags = self.filter(movie_id=id).values('tag')
+        tags_string = ''
+        for tag in range(0, len(tags) - 1):
+            tags_string += tags[tag]['tag'] + ' '
+        return tags_string
+
+'''
+Models
+'''
+
+class Links(models.Model):
+    movie_id = models.IntegerField(blank=True, default=0)
+    imdb_id =  models.IntegerField(blank=True, default=0)
+    tmdb_id = models.IntegerField(blank=True, default=0)
+
+    class Meta:
+        ordering = ('movie_id',)
+
+    objects = LinksManager()
+
+class Movies(models.Model):
+    movie_id = models.IntegerField(default=0)
+    title = models.CharField(max_length=256, blank=True, default='')
+    year = models.TextField(max_length=16, blank=True, default='')
+    genres = models.TextField(max_length=256, blank=True, default='')
+
+    objects =  MoviesManager()
+
+    class Meta:
+        ordering = ('movie_id',)
+
+    def save(self, *args, **kwargs):
+        if '(' in self.title:
+            self.year = self.title.rsplit('(',1)[1].replace(')', '')
         else:
-            return Response({'response':'Does not exist.'}, status=status.HTTP_404_NOT_FOUND)
+            self.year = 0
 
-class ListMovies(APIView):
-    def get(self, request):
-        if 'year' and 'sort' in request.query_params.keys():
-            field_exists = None
-            abs_sort = request.query_params['sort'].replace('-','')
-            try:
-                field_exists = Movies._meta.get_field(abs_sort)
-            except FieldDoesNotExist as e:
-                return Response({'response':str(e)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        self.title = self.title.rsplit('(',1)[0]
+        super(Movies, self).save(*args, **kwargs)
 
-            if field_exists:
-                movies = Movies.objects.by_year(request.query_params['year']).order_by(request.query_params['sort'])
+class Ratings(models.Model):
+    user_id = models.IntegerField(default=0)
+    movie_id = models.IntegerField(default=0)
+    rating = models.DecimalField(max_digits=8, decimal_places=1, default=0)
+    timestamp = models.IntegerField(default=0)
 
-        elif 'year' in request.query_params.keys():
-            movies = Movies.objects.by_year(request.query_params['year'])
-        elif 'sort' in request.query_params.keys():
-            movies = Movies.objects.all().order_by(request.query_params['sort'])
-        elif 'tag' in request.query_params.keys():
-            tags = self.request.query_params.getlist('tag', None)
-            movies = Movies.objects.by_tags(tags)
-        else:
-            movies = Movies.objects.all()
+    class Meta:
+        ordering = ('movie_id',)
 
+    objects =  RatingsManager()
 
-        movies = movies.values('movie_id', 'year', 'title')
-        movies_dict = query_set_to_dict(movies)
+class Tags(models.Model):
+    user_id = models.IntegerField(default=0)
+    movie_id = models.IntegerField(default=0)
+    tag = models.TextField(max_length=256, blank=True, default='')
+    timestamp = models.IntegerField(default=0)
 
-        if not movies_dict:
-            return Response({'response':'No movies found for given criteria.'}, status=status.HTTP_404_NOT_FOUND)
-        else:
-            return Response(movies_dict, status=status.HTTP_200_OK)
+    class Meta:
+        ordering = ('movie_id',)
 
-class ImportDataset(APIView):
-    def post(self, request):
-        if request.data['source'] == 'ml-latest-small':
-            try:
-                import_dataset()
-                return Response({'response':'Import completed.'}, status=status.HTTP_200_OK)
-            except Exception as e:
-                print(e)
-                return Response({'response':'Import failed.'}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            return Response({'response':'Wrong parameters.'}, status=status.HTTP_400_BAD_REQUEST)
+    objects =  TagsManager()
