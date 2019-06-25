@@ -20,7 +20,7 @@ class MovieDetails(APIView):
             return Response({
                 'title': Movies.objects.title_by_id(movieId),
                 'score': Ratings.objects.movie_avg(movieId),
-                'genres': Movies.objects.genres_by_id(movieId), 
+                'genres': Movies.objects.genres_by_id(movieId),
                 'link': Links.objects.movie_id(movieId),
                 'year': Movies.objects.year_by_id(movieId)
                 }, status=status.HTTP_200_OK)
@@ -36,7 +36,7 @@ class ListMovies(APIView):
                 field_exists = Movies._meta.get_field(abs_sort)
             except FieldDoesNotExist as e:
                 return Response({'response':str(e)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
-            
+
             if field_exists:
                 movies = Movies.objects.by_year(request.query_params['year']).order_by(request.query_params['sort'])
 
@@ -44,6 +44,9 @@ class ListMovies(APIView):
             movies = Movies.objects.by_year(request.query_params['year'])
         elif 'sort' in request.query_params.keys():
             movies = Movies.objects.all().order_by(request.query_params['sort'])
+        elif 'tag' in request.query_params.keys():
+            tags = self.request.query_params.getlist('tag', None)
+            movies = Movies.objects.by_tags(tags)
         else:
             movies = Movies.objects.all()
 
